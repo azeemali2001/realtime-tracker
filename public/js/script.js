@@ -45,7 +45,6 @@ socket.on('connect', () => {
   socket.emit('set-name', myName);
 });
 
-// Receive location from others
 socket.on('receive-location', (pkt) => {
   if (!pkt || !pkt.id) return;
   const { id, shortId, color, latitude, longitude, name } = pkt;
@@ -53,24 +52,30 @@ socket.on('receive-location', (pkt) => {
   if (id === socket.id) {
     myShortId = shortId;
     myColor = color;
-    return; // skip notifications for self
+    return; // skip self
   }
 
   const latlng = [latitude, longitude];
-
-  // Show notification if moved significantly or new user
-  const isNewUser = !markers[id]; // check if this is the first time we see this user
+  const isNewUser = !markers[id];
   const last = lastPositions[id];
   const moved = !last || Math.abs(last.lat - latitude) > 0.0005 || Math.abs(last.lng - longitude) > 0.0005;
 
-  if ((moved || isNewUser) && Notification.permission === "granted") {
-    new Notification(`${name} is ${isNewUser ? 'online' : 'moving'}!`, {
-      body: `Location: (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
-      icon: 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
-    });
+  // Trigger notification for new user or movement
+  if (Notification.permission === "granted") {
+    if (isNewUser) {
+      new Notification(`${name} joined the map!`, {
+        body: `Location: (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
+        icon: 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+      });
+    } else if (moved) {
+      new Notification(`${name} moved!`, {
+        body: `Location: (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
+        icon: 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+      });
+    }
   }
-  lastPositions[id] = { lat: latitude, lng: longitude };
 
+  lastPositions[id] = { lat: latitude, lng: longitude };
 
   // Update or create marker
   if (markers[id]) {
@@ -82,6 +87,7 @@ socket.on('receive-location', (pkt) => {
     markers[id] = marker;
   }
 });
+
 
 // Remove marker on disconnect
 socket.on('user-disconnect', (obj) => {
