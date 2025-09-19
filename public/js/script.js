@@ -1,9 +1,9 @@
 // public/js/script.js
 const socket = io();
 
+
 // Ask for name
 let myName = prompt("Enter your name:", "Guest") || "Guest";
-socket.emit('set-name', myName);
 
 // Map setup
 const map = L.map('map').setView([0, 0], 16);
@@ -11,8 +11,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-// Store markers
+// Store markers and last positions
 const markers = {};
+const lastPositions = {};
 let myShortId = null;
 let myColor = '#000000';
 
@@ -30,11 +31,21 @@ const createIcon = (color) => {
   });
 };
 
+// Request notification permission
+if ("Notification" in window) {
+  Notification.requestPermission().then((permission) => {
+    if (permission === "granted") console.log("Notifications enabled");
+  });
+}
+
+// Socket connected
 socket.on('connect', () => {
   console.log('socket id:', socket.id);
+  // send name after connection
+  socket.emit('set-name', myName);
 });
 
-// Receive location
+// Receive location from others
 socket.on('receive-location', (pkt) => {
   if (!pkt || !pkt.id) return;
   const { id, shortId, color, latitude, longitude, name } = pkt;
@@ -42,10 +53,26 @@ socket.on('receive-location', (pkt) => {
   if (id === socket.id) {
     myShortId = shortId;
     myColor = color;
+    return; // skip notifications for self
   }
 
   const latlng = [latitude, longitude];
 
+  // Show notification if moved significantly or new user
+  const isNewUser = !markers[id]; // check if this is the first time we see this user
+  const last = lastPositions[id];
+  const moved = !last || Math.abs(last.lat - latitude) > 0.0005 || Math.abs(last.lng - longitude) > 0.0005;
+
+  if ((moved || isNewUser) && Notification.permission === "granted") {
+    new Notification(`${name} is ${isNewUser ? 'online' : 'moving'}!`, {
+      body: `Location: (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`,
+      icon: 'https://cdn-icons-png.flaticon.com/512/149/149071.png'
+    });
+  }
+  lastPositions[id] = { lat: latitude, lng: longitude };
+
+
+  // Update or create marker
   if (markers[id]) {
     markers[id].setLatLng(latlng);
     markers[id].bindPopup(`<b>${name || shortId || id}</b>`);
@@ -63,6 +90,7 @@ socket.on('user-disconnect', (obj) => {
   if (markers[id]) {
     map.removeLayer(markers[id]);
     delete markers[id];
+    delete lastPositions[id];
   }
 });
 
@@ -82,8 +110,8 @@ if (navigator.geolocation) {
       const myId = socket.id || 'me';
       const shortId = myShortId || myId.slice(0, 6);
       const color = myColor || '#000000';
-
       const latlng = [latitude, longitude];
+
       if (markers[myId]) {
         markers[myId].setLatLng(latlng);
         markers[myId].bindPopup(`<b>You (${myName})</b>`);
